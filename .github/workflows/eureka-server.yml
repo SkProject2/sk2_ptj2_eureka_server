@@ -1,0 +1,107 @@
+name: eureka-server CI/CD
+
+on:
+  push:
+    branches:
+      - eureka-server
+  pull_request:
+    branches:
+      - eureka-server
+
+jobs:
+  # 잡 전체에 대한 이름 (custom 가능)
+  cicd-deploy:
+    # ubuntu linux 준비 -> 해장 작업이 진행되는 베이스 OS 지정
+    runs-on: ubuntu-latest
+    # 개별 작업 단계 지정
+    steps:
+      - name: Github Repository 내 파일들 checkout(불러오기) 수행
+        uses: actions/checkout@v4
+
+      - name: JDK 17 버전 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin' # See 'Supported distributions' for available options
+          java-version: '17'
+
+      - name: 자바 설치 확인
+        run: java -version
+
+      - name: application.yml 동적 생성
+        run: |
+          mkdir -p ./src/main/resources/
+          echo "${{ secrets.EUREKA_APPLICATION_YML }}" > ./src/main/resources/application.yml
+          ls ./src/main/resources/
+
+      # build 준비
+      # chmod +x ./gradlew : 퍼미션 오류 발생 시 처리
+      # ./gradlew clean build
+      - name: 단위 테스트 및 빌드
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build
+          pwd
+          ls
+          ls ./build/libs
+
+      # 이름이 너무 길어서 적당하게 수정 -> 리눅스 명령어
+      # 파일의 위치를 변경하면서 이름도 변경 -> mv
+      - name: 관리상 빌드된 결과물의 이름을 변경 처리
+        run: |
+          mv ./build/libs/*SNAPSHOT.jar ./run.jar
+          ls
+
+      # EC2로 업로드
+      # https://github.com/appleboy/scp-action
+      # SSH를 통해서 파일 등을 복사(업로드)
+      # 호스트 정보(IP), 접속자명(ubuntu), 키파일(pem) -> 시크릿!!
+      # 업로드 대상(run.jar)
+      # 타겟(EC2)의 특정 경로 (복사될 위치), /home/ubuntu/server/demo
+      - name: EC2에 jar파일 업로드
+        uses: appleboy/scp-action@v0.1.7
+        # 위의 액션을 위한 파라미터
+        # SSH의 포트를 보안 상 이유로 22 -> 다른 번호로 변경했다면
+        #   -> PORT 설정 필요
+        # 파일이 여러개면 "파일, 파일, ..." 나열해서 넣어주기
+        # 원격 서버에 폴더도 자동 생성되는지 검토 필요
+        with:
+          host: ${{ secrets.EUREKA_GATEWAY_EC2_HOST }}
+          username: ${{ secrets.EUREKA_GATEWAY_EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          source: run.jar
+          target: /home/ubuntu/miniProject2/eureka-server/demo
+
+      # EC2 접속
+      - name: SSH로 ec2에 접속 후, 서버 가동
+        uses: appleboy/ssh-action@v1.2.0
+        # script_stop : true -> 오류나면 중단
+        # 처리할 반복적 작업
+        # 1. 기존 jar 파일 삭제 (업로드 위치, 구동 위치 구분)
+        #    구동 위치 : /home/ubuntu/server/web <- 설정 (가정)
+        # 2. 새롭게 폴더 생성 /home/ubuntu/server/web
+        #     mkdir /home/ubuntu/server/web
+        # 3. jar 파일 이동 (~/demo/*.jar -> ~/web/*.jar)
+
+        # 4. jar 파일이 존재하는 위치로 이동
+        #    cd /home/ubuntu/server/web
+        # 5. 서버 중단 -> 8080 포트를 사용하는 프로세스 중단
+        #     sudo fuser -k -n tcp 8080 || true
+        #     무조건 다음 단계로 넘어가게 처리 (|| true)
+        # 6. 서버 구동
+        #     엑세스, 에러 로그 등 전체 로그를 output.log로 출력
+        #     nohup java -jar run.jar > ./output.log 2>&1 &
+        # 7. 뒷정리
+        #     rm -rf /home/ubuntu/server/demo
+        with:
+          host: ${{ secrets.EUREKA_GATEWAY_EC2_HOST }}
+          username: ${{ secrets.EUREKA_GATEWAY_EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script_stop: true
+          script: |
+            mv /home/ubuntu/miniProject2/eureka-server/demo/run.jar /home/ubuntu/miniProject2/eureka-server/run.jar
+            cd /home/ubuntu/miniProject2/eureka-server
+            sudo fuser -k -n tcp 8761 || true
+            nohup java -jar run.jar > ./output.log 2>&1 &
+            rm -rf /home/ubuntu/miniProject2/eureka-server/demo
+            
+            
