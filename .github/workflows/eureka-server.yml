@@ -8,6 +8,7 @@ on:
     branches:
       - main
 
+
 jobs:
   # 잡 전체에 대한 이름 (custom 가능)
   cicd-deploy:
