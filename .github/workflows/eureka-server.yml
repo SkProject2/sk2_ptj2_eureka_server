@@ -3,10 +3,10 @@ name: eureka-server CI/CD
 on:
   push:
     branches:
-      - eureka-server
+      - main
   pull_request:
     branches:
-      - eureka-server
+      - main
 
 jobs:
   # 잡 전체에 대한 이름 (custom 가능)
