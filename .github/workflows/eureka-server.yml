@@ -106,3 +106,4 @@ jobs:
             rm -rf /home/ubuntu/miniProject2/eureka-server/demo
             
             
+
